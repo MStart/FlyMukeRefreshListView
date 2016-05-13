@@ -22,6 +22,7 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
     private final int PULL = 1;//提示下拉刷新状态
     private final int RELESE = 2;//提示释放状态
     private final int REFLASHING = 3;//正在刷新状态
+    private final int RATIO = 3;//比值
 
     private View headerView;//顶部刷新视图
     private int headerViewHeight;//顶部布局文件的高度
@@ -30,10 +31,9 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
     private boolean isEnd;//是否结束刷新
     private boolean isRefreable;//是否可以刷新
     private boolean isRemark;//标记，当前是在ListView是否是在第一个
-    private int startY;//按下时的Y值
+    private float startY;
+    private float offsetY;
     private int state;//当前的状态
-    private int space;
-    private int scrollState;//ListView当前滚动状态
 
     private TextView tip;
     private ImageView img;
@@ -107,7 +107,7 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
 
     @Override
     public void onScrollStateChanged(AbsListView absListView, int scrollState) {
-        this.scrollState = scrollState;
+
     }
 
     @Override
@@ -126,7 +126,7 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
                     case MotionEvent.ACTION_DOWN:
                         if (firstVisibleItem == 0 && !isRemark) {
                             isRemark = true;
-                            startY = (int) ev.getY();
+                            startY = ev.getY();
                         }
                         break;
                     case MotionEvent.ACTION_MOVE:
@@ -149,8 +149,6 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
             }
         }
 
-
-
         return super.onTouchEvent(ev);
     }
 
@@ -159,46 +157,66 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
      * @param ev
      */
     private void onMove(MotionEvent ev) {
-        int tempY = (int) ev.getY();
+
+
+        //再次得到y坐标，用来和startY相减来计算offsetY位移值
+        float tempY = ev.getY();
         //再起判断一下是否为listview顶部并且没有记录y坐标
         if (firstVisibleItem == 0 && !isRemark) {
             isRemark = true;
             startY = tempY;
         }
 
-        //如果当前状态不是正在刷新的状态，并且已经记录了y坐标
         if (state != REFLASHING && isRemark) {
-            space = (tempY - startY)/3;
-//            if (space > headerViewHeight) {
-//                space = headerViewHeight+1;
-//            }
-            int topPadding = space-headerViewHeight;
+            //计算y的偏移量
+            offsetY = tempY - startY;
+            //计算当前滑动的高度
+            float currentHeight = (-headerViewHeight+offsetY/3);
 
-            switch (state) {
-                case NONE:
-                    if (space > 0) {
-                        state = PULL;
-                        refreshViewByState();
-                    }
-                    break;
-                case PULL:
-                    topPadding(topPadding);
-                    if (space > headerViewHeight+10
-                            && scrollState == SCROLL_STATE_TOUCH_SCROLL) {//当前正在滚动
-                        state = RELESE;
-                        refreshViewByState();
-                    }
-                    break;
-                case RELESE:
-                    if (space < headerViewHeight+10) {
-                        state = PULL;
-                        refreshViewByState();
-                    } else if (space <= 0) {
-                        state = NONE;
-                        isRemark = false;
-                        refreshViewByState();
-                    }
-                    break;
+            //如果当前的状态是释放刷新，并且已经记录y坐标
+            if (state == RELESE && isRemark) {
+                setSelection(0);
+                //如果当前滑动的距离小于headerView的总高度
+                if (-headerViewHeight+offsetY/RATIO<0) {
+                    //状态改为下拉刷新
+                    state = PULL;
+                    refreshViewByState();
+                } else if (offsetY <= 0) {//如果当前y的位移值小于0，即为headerView隐藏了
+                    //状态改为正常状态
+                    state = NONE;
+                    refreshViewByState();
+                }
+            }
+            //如果当前状态为下拉刷新并且已经记录y坐标
+            if (state == PULL && isRemark) {
+                setSelection(0);
+                //如果下拉距离大于等于headerView的总高度
+                if (-headerViewHeight+offsetY/RATIO>=0) {
+                    //状态改为释放刷新
+                    state = RELESE;
+                    refreshViewByState();
+                } else if (offsetY <= 0) {//如果当前y的位移值小于0，即为headerView隐藏了
+                    //状态改为正常状态
+                    state = NONE;
+                    refreshViewByState();
+                }
+            }
+            //如果当前状态为正常并且已经记录y坐标
+            if (state == NONE && isRemark) {
+                //如果位移值大于0
+                if (offsetY>=0) {
+                    //将状态改为释放刷新状态
+                    state = PULL;
+                    refreshViewByState();
+                }
+            }
+            //如果为下拉刷新状态
+            if (state == PULL) {
+                topPadding((int)(-headerViewHeight+offsetY/RATIO));
+            }
+            //如果为释放刷新状态
+            if (state == RELESE) {
+                topPadding((int)(-headerViewHeight+offsetY/RATIO));
             }
 
         }
@@ -211,7 +229,7 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
         switch (state) {
             case NONE:
                 topPadding(-headerViewHeight);
-                setSelection(0);
+                drawableAnim.stop();
                 break;
             case PULL:
                 drawableAnim.stop();
@@ -222,7 +240,6 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
                 tip.setText("释放刷新");
                 break;
             case REFLASHING:
-                topPadding(0);
                 drawableAnim.start();
                 tip.setText("正在刷新");
                 break;
@@ -235,7 +252,6 @@ public class RefreshListView extends ListView implements AbsListView.OnScrollLis
     public void refreshComplete() {
         isEnd = true;
         state = NONE;
-        isRemark = false;
 
         refreshViewByState();
     }
